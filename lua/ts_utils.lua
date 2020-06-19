@@ -2,61 +2,60 @@
 
 local api = vim.api
 local ts = vim.treesitter
+local ts_utils = require'nvim-treesitter.utils'
+local ts_query = require'nvim-treesitter.query'
+local node_api = require'nvim-treesitter'.get_node_api()
 
 local M = {
+}
+
+M.match_kinds = {
+  var = 'v',
+  method = 'm',
+  ['function'] = 'f'
 }
 
 local function read_query_file(fname)
   return table.concat(vim.fn.readfile(fname), '\n')
 end
 
-function M.get_query(ft, query_name)
-  local query_files = api.nvim_get_runtime_file(string.format('queries/%s/%s.scm', ft, query_name), false)
-  if #query_files > 0 then
-    return ts.parse_query(ft, read_query_file(query_files[1]))
-  end
-end
+-- function M.get_query(ft, query_name)
+--   local query_files = api.nvim_get_runtime_file(string.format('queries/%s/%s.scm', ft, query_name), false)
+--   if #query_files > 0 then
+--     return ts.parse_query(ft, read_query_file(query_files[1]))
+--   end
+-- end
 
-function M.prepare_match(query, match)
+function M.prepare_match(match)
   local object = {}
-  for id, node in pairs(match) do
-    local name = query.captures[id] -- name of the capture in the query
-    if string.len(name) == 1 then
-      object.kind = name
-      object.full = node
-    else
-      object[name] = node
+
+  if match.node then
+    object.full = node
+    object.def = node
+  else
+    for name, item in pairs(match) do
+      object.kind = M.match_kinds[name]
+      object.full = item.node
+      object.def = item.node
     end
   end
 
   return object
 end
 
-local function get_parser(bufnr)
-  if M.has_parser() then
-    local buf = bufnr or api.nvim_get_current_buf()
-    if not M[buf] then
-      local parser = ts.get_parser(0)
-      M[buf] = {parser=parser, cache={}};
-    end
-    return M[buf].parser
-  end
-end
-
-function M.get_definition(tree, node)
-  local parser = get_parser()
-  local node_text = M.get_node_text(node)
-  local final_query = M.prepare_def_query(string.format('(eq? @def "%s")', node_text))
-
-  local tsquery = ts.parse_query(parser.lang, final_query)
-  local row_start, _, row_end, _ = tree:range()
+function M.get_definition(node, tree)
+  local node_text = node_api.get_node_text(node)
+  local bufnr = api.nvim_get_current_buf()
+  local filetype = api.nvim_buf_get_option('filetype')
+  local query = ts_query.get_query(filetype, 'locals')
   local _, _, node_start = node:start()
   -- Get current context, and search upwards
   local current_context = node
+
   repeat
-    current_context = M.smallestContext(tree, current_context)
-    for _, match in tsquery:iter_matches(current_context, parser.bufnr, row_start, row_end) do
-      local prepared = M.prepare_match(tsquery, match)
+    current_context = node_api.previous_scope(current_context)
+    for _, match in ts_utils.iter_prepared_matches(query, current_context, bufnr, row_start, row_end) do
+      local prepared = M.prepare_match(match)
       local def = prepared.def
       local _, _, def_start = def:start()
 
@@ -100,7 +99,7 @@ function M.get_node_text(node, bufnr, line)
 end
 
 function M.tree_root(bufnr)
-  return get_parser(bufnr):parse():root()
+  return ts_utils.get_parser(bufnr):parse():root()
 end
 
 function M.has_parser(lang)
@@ -130,16 +129,16 @@ function M.expression_at_point(tsroot)
   return current_node
 end
 
-function M.smallestContext(tree, source)
-  -- Step 1 get current context
-  local contexts = api.nvim_buf_get_var(get_parser().bufnr, 'completion_context_query')
-  local current = source
-  while current ~= nil and not vim.tbl_contains(contexts, current:type()) do
-    current = current:parent()
-  end
+-- function M.smallestContext(tree, source)
+--   -- Step 1 get current context
+--   local contexts = api.nvim_buf_get_var(get_parser().bufnr, 'completion_context_query')
+--   local current = source
+--   while current ~= nil and not vim.tbl_contains(contexts, current:type()) do
+--     current = current:parent()
+--   end
 
-  return current or tree
-end
+--   return current or tree
+-- end
 
 function M.parse_query(query)
   return ts.parse_query(get_parser().lang, query)

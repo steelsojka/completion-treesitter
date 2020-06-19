@@ -1,6 +1,7 @@
 local api = vim.api
 local ts = vim.treesitter
 local utils = require'ts_utils'
+local ts_query = require'nvim-treesitter.query'
 
 local high_ns = api.nvim_get_namespaces()['completion-treesitter']
 
@@ -13,48 +14,6 @@ local function node_range_to_vim(node)
     return {{start_row, start_col}, {end_row, end_col}}
   else
     return {{}, {}}
-  end
-end
-
-function M.node_incremental()
-  local _, sel_start_line, sel_start_col, _ = unpack(vim.fn.getpos("'<"))
-  local _, sel_end_line, sel_end_col, _ = unpack(vim.fn.getpos("'>"))
-
-  if utils.has_parser() then
-    local root = utils.tree_root()
-    local node = root:named_descendant_for_range(sel_start_line-1, sel_start_col-1, sel_end_line-1, sel_end_col)
-    local node_start_row, node_start_col, node_end_row, node_end_col = node:range()
-
-    if (sel_start_line-1) == node_start_row and (sel_start_col-1) == node_start_col
-      and (sel_end_line-1) == node_end_row and sel_end_col == node_end_col then
-      return node_range_to_vim(node:parent() or node)
-    else
-      return node_range_to_vim(node)
-    end
-  else
-    return node_range_to_vim()
-  end
-end
-
-function M.context_incremental()
-  local _, sel_start_line, sel_start_col, _ = unpack(vim.fn.getpos("'<"))
-  local _, sel_end_line, sel_end_col, _ = unpack(vim.fn.getpos("'>"))
-
-  if utils.has_parser() then
-    local root = utils.tree_root()
-    local node = utils.smallestContext(root,
-    root:named_descendant_for_range(sel_start_line-1, sel_start_col-1, sel_end_line-1, sel_end_col))
-
-    local node_start_row, node_start_col, node_end_row, node_end_col = node:range()
-
-    if (sel_start_line-1) == node_start_row and (sel_start_col-1) == node_start_col
-      and (sel_end_line-1) == node_end_row and sel_end_col == node_end_col then
-      return node_range_to_vim(utils.smallestContext(root, node:parent() or node))
-    else
-      return node_range_to_vim(node)
-    end
-  else
-    return node_range_to_vim()
   end
 end
 
@@ -77,19 +36,16 @@ end
 
 local function get_usages(tree, node)
   -- Get definition
-  local definition, scope = utils.get_definition(tree, node)
-
-  local ident_query = '((%s) @ident (eq? @ident "%s"))'
-  local ident_type = api.nvim_buf_get_var(bufnr, 'completion_ident_type_name')
-
-  local row_start, _, row_end, _ = tree:range()
-
-  local tsquery = utils.parse_query(string.format(ident_query, ident_type, utils.get_node_text(node)))
-
+  local _, scope = utils.get_definition(node, tree)
+  local filetype = api.nvim_buf_get_option('filetype')
+  local query = ts_query.get_query(filetype, 'locals')
+  local node_text = node_api.get_node_text(node)
   local usages = {}
 
-  for id, usage in tsquery:iter_captures(scope, 0, row_start, row_end) do
-    table.insert(usages, usage)
+  for _, match in ts_query:iter_prepared_matches(query, scope, 0, row_start, row_end) do
+    if match.reference and node_api.get_node_text(match.reference.node) == node_text then
+      table.insert(usages, usage)
+    end
   end
   return usages
 end

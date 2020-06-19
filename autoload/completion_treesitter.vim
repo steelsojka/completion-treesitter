@@ -10,15 +10,15 @@ function! s:visual_node(node_range)
 endfunction
 
 function! completion_treesitter#foldexpr()
-	return luaeval(printf('require"ts_navigation".get_fold_indic(%d)', v:lnum))
+	return luaeval(printf('require"nvim-treesitter.fold".get_fold_indic(%d)', v:lnum))
 endfunction
 
 function! completion_treesitter#select_incr()
-	call s:visual_node(luaeval('require"ts_textobj".node_incremental()'))
+	call s:visual_node(luaeval('require"nvim-treesitter.incremental_selection".node_incremental()'))
 endfunction
 
 function! completion_treesitter#select_context()
-	call s:visual_node(luaeval('require"ts_textobj".context_incremental()'))
+	call s:visual_node(luaeval('require"nvim-treesitter.incremental_selection".scope_incremental()'))
 endfunction
 
 function! completion_treesitter#highlight_usages() abort
